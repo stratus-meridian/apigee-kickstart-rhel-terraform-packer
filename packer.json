@@ -1,0 +1,26 @@
+{
+    "builders": [
+       {
+           "type": "googlecompute",
+           "project_id": "stratus-meridian-dev",
+           "source_image_family": "rhel-8",
+           "zone": "us-central1-a",
+           "ssh_username": "robert_stratusmeridian_com",
+           "image_name": "stratus-meridian-{{timestamp}}",
+           "image_description": "RHEL 8.0 with Fireeye and Nessus agents.",
+           "image_storage_locations": ["us-central1"],
+           "image_labels": {
+               "developer": "robert"
+           },
+           "metadata": { 
+               "enable-oslogin": "false" 
+            }
+       }
+   ],
+   "provisioners": [
+       {
+           "type": "shell",
+           "script": "script.sh"
+       }
+   ]
+}
