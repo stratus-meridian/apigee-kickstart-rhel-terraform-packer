@@ -17,6 +17,7 @@ sudo dnf upgrade -y
 # Security
 sudo setenforce 0
 sudo setsebool -P httpd_can_network_connect 1
+sudo setsebool -P httpd_unified 1
 
 REQPKGS=(git zip unzip wget yum-utils jq httpd-tools)
 
@@ -144,6 +145,7 @@ sudo yum install mysql -y
 sudo dnf module reset php
 sudo dnf module install php:${PHP_VERSION} -y
 sudo dnf install -y php-{fpm,cli,mysqlnd,json,opcache,xml,mbstring,gd,curl,bcmath}
+sudo sed -i -e 's/^user = apache/user = nginx/' -e 's/^group = apache/group = nginx/' /etc/php-fpm.d/www.conf
 sudo systemctl enable --now php-fpm
 
 # Install Composer
@@ -616,6 +618,7 @@ PORTAL_NAME=$(curl --noproxy google.internal -f http://metadata.google.internal/
 
 # create file directory on the fileshare
 mkdir -p /mnt/fileshare/$PORTAL_NAME/files
+chcon -t httpd_sys_content_t -R /mnt/fileshare/$PORTAL_NAME/files
 
 if [ -f "/mnt/fileshare/$PORTAL_NAME/portal-code.tar.gz" ]
 then
