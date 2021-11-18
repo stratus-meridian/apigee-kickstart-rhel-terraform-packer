@@ -1,4 +1,5 @@
 resource "google_runtimeconfig_config_iam_binding" "binding" {
+  provider = google-beta
   config = google_runtimeconfig_config.main.name
   role = "roles/viewer"
   members = [

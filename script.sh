@@ -5,13 +5,13 @@ LOGGING_AGENT_VERSION="1.8.6"
 MONITORING_AGENT_VERSION="6.1.2"
 PHP_VERSION="7.4"
 DRUPAL_VERSION="9.2.7"
-SUPERVISOR_VERSION="4.2.2"
 COMPOSER_VERSION="2.1.8"
 APIGEE_SCRIPTS_PATH="/opt/apigee/scripts"
 
 # Prerequisite
 sudo dnf clean all
 sudo yum upgrade -y
+sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
 sudo dnf upgrade -y
 
 # Security
@@ -19,8 +19,7 @@ sudo setenforce 0
 sudo setsebool -P httpd_can_network_connect 1
 sudo setsebool -P httpd_unified 1
 
-
-REQPKGS=(git zip unzip wget yum-utils jq httpd-tools)
+REQPKGS=(git zip unzip wget yum-utils jq nfs-utils httpd-tools supervisor)
 
 for pkg in "${REQPKGS[@]}"; do
     until rpm -qa | grep "$pkg"
@@ -50,42 +49,9 @@ sudo sed -i -e '35s/^/#/' /etc/stackdriver/collectd.conf
 sudo sed -i -e '36s/^/#/' /etc/stackdriver/collectd.conf
 sudo sed -i -e '37s/^/#/' /etc/stackdriver/collectd.conf
 
-# Install Supervisor 4.2.2
-sudo pip3 install supervisor
-sudo mkdir -p /etc/supervisor/conf.d
-sudo mkdir /var/log/supervisor
-cat << EOT2 >> /tmp/supervisord.conf
-; supervisor config file
-
-[unix_http_server]
-file=/var/run/supervisor.sock   ; (the path to the socket file)
-chmod=0700                       ; sockef file mode (default 0700)
-
-[supervisord]
-logfile=/var/log/supervisor/supervisord.log ; (main log file;default $CWD/supervisord.log)
-pidfile=/var/run/supervisord.pid ; (supervisord pidfile;default supervisord.pid)
-childlogdir=/var/log/supervisor            ; ('AUTO' child log dir, default $TEMP)
-
-; the below section must remain in the config file for RPC
-; (supervisorctl/web interface) to work, additional interfaces may be
-; added by defining them in separate rpcinterface: sections
-[rpcinterface:supervisor]
-supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
-
-[supervisorctl]
-serverurl=unix:///var/run/supervisor.sock ; use a unix:// URL  for a unix socket
-
-; The [include] section can just contain the "files" setting.  This
-; setting can list multiple files (separated by whitespace or
-; newlines).  It can also contain wildcards.  The filenames are
-; interpreted as relative to this file.  Included files *cannot*
-; include files themselves.
-
-[include]
-files = /etc/supervisor/conf.d/*.conf
-EOT2
-sudo mv /tmp/supervisord.conf /etc/supervisor/supervisord.conf
-cat << EOT3 >> /tmp/apigee-supervisor.conf
+# Enable Supervisor 4.2.2
+sudo systemctl enable supervisord
+cat << EOT3 >> /tmp/apigee-supervisor.ini
 [program:php-fpm]
 command = /usr/sbin/php-fpm -F
 stdout_logfile = stdout
@@ -119,25 +85,7 @@ autostart = true
 autorestart = true
 priority = 10
 EOT3
-sudo mv /tmp/apigee-supervisor.conf /etc/supervisor/conf.d/apigee-supervisor.conf
-cat << "EOT16" >> /tmp/supervisor.service
-[Unit]
-Description=Supervisor process control system for UNIX
-Documentation=http://supervisord.org
-After=network.target
-
-[Service]
-ExecStart=/usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
-ExecStop=/usr/bin/supervisorctl $OPTIONS shutdown
-ExecReload=/usr/bin/supervisorctl -c /etc/supervisor/supervisord.conf $OPTIONS reload
-KillMode=process
-Restart=on-failure
-RestartSec=50s
-
-[Install]
-WantedBy=multi-user.target
-EOT16
-sudo mv /tmp/supervisor.service /lib/systemd/system/supervisor.service
+sudo mv /tmp/apigee-supervisor.ini /etc/supervisord.d/apigee-supervisor.ini
 
 # Install MySQL Client
 sudo yum install mysql -y
@@ -301,17 +249,16 @@ cp -f /var/www/devportal/code/web/sites/default/default.settings.php /var/www/de
 cp /opt/apigee/scripts/solution-settings.php.txt /tmp/solution-settings.php.txt
 ACCESS_TOKEN=$(curl --noproxy google.internal 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' -H "Metadata-Flavor: Google" | jq .access_token)
 PORTAL_RUNTIME_CONFIG_URL=$(curl --noproxy google.internal 'http://metadata.google.internal/computeMetadata/v1/instance/attributes/PORTAL_RUNTIME_CONFIG' -H "Metadata-Flavor: Google")
-PORTAL_DB_NAME=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/name" -H "Authorization:Bearer $ACCESS_TOKEN" | jq .text )
-sed -i "s/__PORTAL_DB_NAME__/$PORTAL_DB_NAME/g"  /tmp/solution-settings.php.txt
-PORTAL_DB_USERNAME=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/username" -H "Authorization:Bearer $ACCESS_TOKEN" | jq .text )
-sed -i "s/__PORTAL_DB_USERNAME__/$PORTAL_DB_USERNAME/g"  /tmp/solution-settings.php.txt
-PORTAL_DB_PASSWORD=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/password" -H "Authorization:Bearer $ACCESS_TOKEN" | jq .text )
-sed -i "s/__PORTAL_DB_PASSWORD__/$PORTAL_DB_PASSWORD/g"  /tmp/solution-settings.php.txt
+PORTAL_DB_NAME=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/name" -H "Authorization:Bearer $ACCESS_TOKEN" | jq -r .value | base64 -d)
+PORTAL_DB_USERNAME=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/username" -H "Authorization:Bearer $ACCESS_TOKEN" | jq -r .value | base64 -d )
+PORTAL_DB_PASSWORD=$(curl "https://runtimeconfig.googleapis.com/v1beta1/$PORTAL_RUNTIME_CONFIG_URL/variables/db/password" -H "Authorization:Bearer $ACCESS_TOKEN" | jq -r .value | base64 -d )
 PORTAL_NAME=$(curl --noproxy google.internal -f http://metadata.google.internal/computeMetadata/v1/instance/attributes/PORTAL_NAME -H "Metadata-Flavor: Google")
+
+sed -i "s/__PORTAL_DB_NAME__/$PORTAL_DB_NAME/g"  /tmp/solution-settings.php.txt
+sed -i "s/__PORTAL_DB_USERNAME__/$PORTAL_DB_USERNAME/g"  /tmp/solution-settings.php.txt
+sed -i "s/__PORTAL_DB_PASSWORD__/$PORTAL_DB_PASSWORD/g"  /tmp/solution-settings.php.txt
 sed -i "s/__PORTAL_NAME__/$PORTAL_NAME/g"  /tmp/solution-settings.php.txt
-
 cat /tmp/solution-settings.php.txt >> /var/www/devportal/code/web/sites/default/settings.php
-
 rm /tmp/solution-settings.php.txt
 
 chown -R nginx:nginx /var/www/devportal/code/web/sites/default/settings.php
@@ -534,9 +481,9 @@ EOT12
 sudo mv /tmp/setup-basic-auth.sh ${APIGEE_SCRIPTS_PATH}/setup-basic-auth.sh
 sudo cat << "EOT13" >> /tmp/solution-settings.php.txt
 $databases['default']['default'] = [
-    'database' => __PORTAL_DB_NAME__,
-    'username' => __PORTAL_DB_USERNAME__,
-    'password' => __PORTAL_DB_PASSWORD__,
+    'database' => "__PORTAL_DB_NAME__",
+    'username' => "__PORTAL_DB_USERNAME__",
+    'password' => "__PORTAL_DB_PASSWORD__",
     'host' => '127.0.0.1',
     'port' => '3306',
     'driver' => 'mysql',
@@ -590,13 +537,6 @@ BASEDIR=$(dirname $(realpath "$0"))
 echo "$BASEDIR"
 set -x;
 
-#Create dummy SSL certs for getting around gcp restriction for now.
-#mkdir -p /etc/nginx/ssl
-#openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-#-subj "/CN=$(hostname -i)" \
-#-keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt
-#chmod -R 600 /etc/nginx/ssl
-
 #setup basic auth to protect the site
 $BASEDIR/setup-basic-auth.sh
 
@@ -606,8 +546,8 @@ service stackdriver-agent restart
 # Start the Cloud Logging agent
 service google-fluentd restart
 
-# Restart the supervisor service for nginx to pickup new certs
-service supervisor restart
+mkdir -p /run/php-fpm
+systemctl restart supervisord 
 
 #Mount the filestore share
 FILESTORE=$(curl --noproxy google.internal -f http://metadata.google.internal/computeMetadata/v1/instance/attributes/PORTAL_FILESTORE -H "Metadata-Flavor: Google")
@@ -645,9 +585,6 @@ if [ -f "/mnt/fileshare/$PORTAL_NAME/custom-startup-script.sh" ]
 then
   /mnt/fileshare/$PORTAL_NAME/custom-startup-script.sh
 fi
-
-# Restart Nginx
-service nginx restart
 
 EOT1
 sudo mv /tmp/startup.sh ${APIGEE_SCRIPTS_PATH}/startup.sh

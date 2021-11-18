@@ -28,7 +28,7 @@ resource "google_compute_region_autoscaler" "main" {
   target = google_compute_region_instance_group_manager.main.id
 
   autoscaling_policy {
-    max_replicas    = 5
+    max_replicas    = 2
     min_replicas    = 1
     cooldown_period = 90
 
