@@ -37,6 +37,6 @@ resource "google_sql_user" "main" {
 }
 
 resource "google_sql_database" "main" {
-  name     = "${var.name}-db"
+  name     = replace("${var.name}-db","-","_")
   instance = google_sql_database_instance.master.name
 }

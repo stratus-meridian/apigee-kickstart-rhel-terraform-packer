@@ -51,9 +51,11 @@ sudo sed -i -e '37s/^/#/' /etc/stackdriver/collectd.conf
 
 # Enable Supervisor 4.2.2
 sudo systemctl enable supervisord
-cat << EOT3 >> /tmp/apigee-supervisor.ini
+sudo systemctl start supervisord
+cat << EOT1 >> /tmp/apigee-supervisor.ini
+
 [program:php-fpm]
-command = /usr/sbin/php-fpm -F
+command = /opt/apigee/scripts/start-php-fpm.sh
 stdout_logfile = stdout
 stdout_logfile_maxbytes=0
 stderr_logfile = stderr
@@ -64,7 +66,7 @@ autorestart = true
 priority = 5
 
 [program:nginx]
-command = /usr/sbin/nginx -g "daemon off;"
+command = /opt/apigee/scripts/start-nginx.sh
 stdout_logfile = stdout
 stdout_logfile_maxbytes=0
 stderr_logfile = stderr
@@ -84,7 +86,7 @@ user = root
 autostart = true
 autorestart = true
 priority = 10
-EOT3
+EOT1
 sudo mv /tmp/apigee-supervisor.ini /etc/supervisord.d/apigee-supervisor.ini
 
 # Install MySQL Client
@@ -95,7 +97,7 @@ sudo dnf module reset php
 sudo dnf module install php:${PHP_VERSION} -y
 sudo dnf install -y php-{fpm,cli,mysqlnd,json,opcache,xml,mbstring,gd,curl,bcmath}
 sudo sed -i -e 's/^user = apache/user = nginx/' -e 's/^group = apache/group = nginx/' /etc/php-fpm.d/www.conf
-sudo systemctl enable --now php-fpm
+#sudo systemctl enable --now php-fpm
 
 # Install Composer
 sudo wget https://getcomposer.org/download/2.1.8/composer.phar
@@ -113,9 +115,9 @@ sudo mv drush.phar /usr/bin/drush
 
 # Install Nginx 1.14
 sudo yum install nginx git -y
-sudo systemctl enable --now nginx
+#sudo systemctl enable --now nginx
 sudo mv /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-cat << EOT6 >> /tmp/nginx.conf
+cat << EOT2 >> /tmp/nginx.conf
 # For more information on configuration, see:
 #   * Official English Documentation: http://nginx.org/en/docs/
 #   * Official Russian Documentation: http://nginx.org/ru/docs/
@@ -184,30 +186,10 @@ http {
         include /etc/nginx/conf.d/*.conf;
         include /etc/nginx/sites-enabled/*;
 }
-#mail {
-#       # See sample authentication script at:
-#       # http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
-#
-#       # auth_http localhost/auth.php;
-#       # pop3_capabilities "TOP" "USER";
-#       # imap_capabilities "IMAP4rev1" "UIDPLUS";
-#
-#       server {
-#               listen     localhost:110;
-#               protocol   pop3;
-#               proxy      on;
-#       }
-#
-#       server {
-#               listen     localhost:143;
-#               protocol   imap;
-#               proxy      on;
-#       }
-#}
-EOT6
+EOT2
 sudo mv /tmp/nginx.conf /etc/nginx/nginx.conf
 sudo mkdir /etc/nginx/sites-enabled
-cat << EOT7 >> /tmp/drupal-nginx.conf
+cat << EOT3 >> /tmp/drupal-nginx.conf
 server {
     listen 80;
     listen [::]:80;
@@ -226,7 +208,7 @@ server {
 #     include /opt/apigee/scripts/nginx-basic-auth.conf;
 #     include /opt/apigee/scripts/drupal-common.conf;
 # }
-EOT7
+EOT3
 sudo mv /tmp/drupal-nginx.conf /etc/nginx/sites-enabled/drupal-nginx.conf
 sudo mkdir -p /var/www/html
 
@@ -272,6 +254,21 @@ INSTANCE_CONNECTION_NAME=$(curl --noproxy google.internal -f http://metadata.goo
 /opt/apigee/cloud_sql_proxy -instances=$INSTANCE_CONNECTION_NAME=tcp:3306
 EOT5
 sudo mv /tmp/start-cloudsql.sh ${APIGEE_SCRIPTS_PATH}/start-cloudsql.sh
+cat << "EOT6" >> /tmp/start-php-fpm.sh
+#!/bin/bash
+systemctl stop php-fpm
+sleep 5
+mkdir -p /run/php-fpm
+/usr/sbin/php-fpm -F
+EOT6
+sudo mv /tmp/start-php-fpm.sh ${APIGEE_SCRIPTS_PATH}/start-php-fpm.sh
+cat << "EOT7" >> /tmp/start-nginx.sh
+#!/bin/bash
+systemctl stop nginx
+sleep 5
+/usr/sbin/nginx -g "daemon off;"
+EOT7
+sudo mv /tmp/start-nginx.sh ${APIGEE_SCRIPTS_PATH}/start-nginx.sh
 cat << "EOT8" >> /tmp/drupal-common.conf
     root /var/www/devportal/code/web; ## <-- Your only path reference.
 
@@ -531,7 +528,7 @@ EOT15
 sudo mv /tmp/nginx-basic-auth.conf ${APIGEE_SCRIPTS_PATH}/nginx-basic-auth.conf
 
 # Apigee Startup Script
-cat << "EOT1" >> /tmp/startup.sh
+cat << "EOT16" >> /tmp/startup.sh
 #!/bin/bash
 BASEDIR=$(dirname $(realpath "$0"))
 echo "$BASEDIR"
@@ -546,7 +543,6 @@ service stackdriver-agent restart
 # Start the Cloud Logging agent
 service google-fluentd restart
 
-mkdir -p /run/php-fpm
 systemctl restart supervisord 
 
 #Mount the filestore share
@@ -586,7 +582,7 @@ then
   /mnt/fileshare/$PORTAL_NAME/custom-startup-script.sh
 fi
 
-EOT1
+EOT16
 sudo mv /tmp/startup.sh ${APIGEE_SCRIPTS_PATH}/startup.sh
 
 # Make all scripts executable
