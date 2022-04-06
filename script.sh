@@ -213,9 +213,29 @@ sudo mv /tmp/drupal-nginx.conf /etc/nginx/sites-enabled/drupal-nginx.conf
 sudo mkdir -p /var/www/html
 
 # Install Drupal 9
+
 sudo mkdir /var/www/devportal
+
+### BEGIN ResourceBusy updates
+# Use dedicated user "devportal" as the application owner
+# This will enable the devportal user to update files
+adduser devportal
+chown -R devportal:devportal /var/www/devportal
+
+# Switch to the devportal user and cd to the project directory
+su - devportal
 cd /var/www/devportal
-sudo composer create-project apigee/devportal-kickstart-project:9.x-dev code --no-interaction
+
+
+# Composer sets the PHP memory limit to 1.5G when it runs, but this may not be enough for our project. 
+# We can set the COMPOSER_MEMORY_LIMIT to 2G so that we do not run into memory issues 
+# by editing the devportal user's Bash script to have the environment variable devportal that Composer will use
+
+echo "export COMPOSER_MEMORY_LIMIT=2G" >> ~devportal/.bash_profile
+source ~/.bash_profile
+### END ResourceBusy updates
+
+composer create-project apigee/devportal-kickstart-project:9.x-dev code --no-interaction
 
 # Create Apigee Scripts
 sudo mkdir -p ${APIGEE_SCRIPTS_PATH}
@@ -227,6 +247,7 @@ set -x;
 
 # Copy over the settings.php files
 cp -f /var/www/devportal/code/web/sites/default/default.settings.php /var/www/devportal/code/web/sites/default/settings.php
+
 
 cp /opt/apigee/scripts/solution-settings.php.txt /tmp/solution-settings.php.txt
 ACCESS_TOKEN=$(curl --noproxy google.internal 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' -H "Metadata-Flavor: Google" | jq .access_token)
@@ -243,7 +264,7 @@ sed -i "s/__PORTAL_NAME__/$PORTAL_NAME/g"  /tmp/solution-settings.php.txt
 cat /tmp/solution-settings.php.txt >> /var/www/devportal/code/web/sites/default/settings.php
 rm /tmp/solution-settings.php.txt
 
-chown -R nginx:nginx /var/www/devportal/code/web/sites/default/settings.php
+chown -R devportal:nginx /var/www/devportal/code/web/sites/default/settings.php
 chmod 660 /var/www/devportal/code/web/sites/default/settings.php
 EOT4
 sudo mv /tmp/copy-settings-php.sh ${APIGEE_SCRIPTS_PATH}/copy-settings-php.sh
@@ -415,13 +436,13 @@ BASEDIR=$(dirname $(realpath "$0"))
 set -x;
 (find /var/www/devportal/code -type d -name ".git" && find /var/www/devportal/code -name ".gitignore" && find /var/www/devportal/code -name ".gitmodules")  | xargs rm -rf
 cd /var/www/devportal/code/
-chown -R nginx:nginx .
+chown -R devportal:nginx .
 find . -type d -exec chmod u=rwx,g=rx,o= '{}' \;
 find . -type f -exec chmod u=rw,g=r,o= '{}' \;
 
 # Need to be able to run Drush command
 cd /var/www/devportal/code/vendor
-chown -R nginx:nginx .
+chown -R devportal:nginx .
 find . -type d -exec chmod u=rwx,g=rx,o=rx '{}' \;
 find . -type f -exec chmod u=rwx,g=rx,o=rx '{}' \;
 EOT10
@@ -445,12 +466,12 @@ mkdir -p /var/www/devportal/files/public \
 ln -sf /var/www/devportal/files/public /var/www/devportal/code/web/sites/default/files
 
 cd /var/www/devportal/files/
-chown -R nginx:nginx .
+chown -R devportal:nginx .
 find . -type d -exec chmod ug=rwx,o= '{}' \;
 find . -type f -exec chmod ug=rw,o= '{}' \;
 
 cd /var/www/devportal/code/web/sites/default
-chown -R nginx:nginx .
+chown -R devportal:nginx .
 find . -type d -exec chmod ug=rwx,o= '{}' \;
 find . -type f -exec chmod ug=rw,o= '{}' \;
 EOT11
